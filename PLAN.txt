@@ -1,0 +1,11 @@
+function for jitter lines - DONE
+function for MNIST instead of printed - DONE 
+Function to mark equal angles - bisector or isoceles
+Function to mark equal lengths - median and perpendiculars 
+3V triangles 
+4V triangles 
+5V triangles
+6V triangles
+Polygons
+Circles
+Mixed
