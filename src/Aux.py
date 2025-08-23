@@ -1,3 +1,5 @@
+import cv2
+import string
 import random 
 import gzip
 import os 
@@ -160,7 +162,7 @@ def draw_handwritten_arc(start_point, center, end_point, jitter_amount=0.02,
 def smart_label_offset(x, y, vertices, offset_distance=0.2):
     """Calculate smart offset for vertex labels to avoid overlaps"""
     # Convert vertices to array for easier calculation
-    coords = np.array([[v["x"], v["y"]] for v in vertices.values()])
+    coords = np.array([[v["x"], v["y"]] for v in vertices])
     current_point = np.array([x, y])
     
     # Find the direction that has the most space
@@ -264,4 +266,62 @@ def create_handwritten_dot():
 
 
 
+class EMNIST_Handler():
+    def __init__(self,emnist_images,emnist_labels,
+            emnist_chars = string.digits+string.ascii_uppercase+string.ascii_lowercase):
+        self.emnist_images = emnist_images
+        self.emnist_labels = emnist_labels
+        self.emnist_chars = emnist_chars
+        
+    def float_mat(self,num):
+        images = []
+        for v in num:
+            if v == ".":
+                mat = np.ones([28,7])
+                mat[23:26,2:5] = 0 +np.random.rand(3,3)*0.2
+                mat = create_handwritten_dot()
+                images.append(1-mat)#[:,8:-8])
+            elif v == '°':
+                # Use digit '0' from EMNIST and downscale for degree symbol
+                ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find('0'))[0])
+                mat = 1 - (self.emnist_images[ind].T / 255)
+            
+            # Downsample the '0' to make it smaller (degree symbol size)
+                downscale_factor = 0.5  # Make it half the size
+                new_size = int(28 * downscale_factor)
+                
+            # Resize using interpolation
+                mat_small = cv2.resize(mat, (new_size, new_size), interpolation=cv2.INTER_AREA)
+            
+            # Create a 28x28 canvas and place the small '0' in the top-right corner
+                canvas = np.ones((28, 28))
+                y_start = 2  # Position at the top
+                x_start = 28 - new_size - 2  # Position at the right
+            
+                canvas[y_start:y_start+new_size, x_start:x_start+new_size] = mat_small
+            
+                images.append(canvas)            
+            else:
+                ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find(v))[0])
+                mat = 1-(self.emnist_images[ind].T/255)
+                image_width = 0.5
+                image_height = 0.5
+                images.append(mat[:,3:-3])
+    
+        mat = np.concatenate(images,axis = 1)
+        return mat
+    def char_mat(self,ch):
+        ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find(ch))[0])
+        mat = 1-(self.emnist_images[ind].T/255)            
+        return mat
 
+
+
+def imshow_handwritten(ax,mat,offset_pos,image_size):
+    x_min = offset_pos[0] - image_size[0] / 2
+    x_max = offset_pos[0] + image_size[0] / 2
+    y_min = offset_pos[1] - image_size[1] / 2
+    y_max = offset_pos[1] + image_size[1] / 2        
+    if (x_max <= x_min) or (y_min >= y_max):
+        raise "Image has wrong bbox"
+    ax.imshow(mat, cmap='gray', extent=[x_min, x_max, y_min, y_max], zorder=2)   
