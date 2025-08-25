@@ -28,6 +28,13 @@ class Triangle():
         self.description["angles"].append({"mark":self.letters[1]+self.letters[2]+self.letters[0]})
         self.description["angles"].append({"mark":self.letters[2]+self.letters[0]+self.letters[1]})
 
+    def new_vertex(self,coords):
+        threshold = 0.000001
+        for v in self.description["vertices"]:
+            distance = np.linalg.norm(np.array(coords)-np.array([v["x"],v["y"]]))
+            if distance < threshold:
+                return v["mark"], False
+        return self.letters[len(self.description["vertices"])], True
     def _pt(self, ch):
         ### returns x and y coordinates for vertice ch
         i = self.letters.find(ch)
@@ -49,13 +56,22 @@ class Triangle():
             self.description["vertices"].append({"mark":self.letters[2],"x":0.5*a,"y":a*np.sin(np.pi/3)})
         else:
             raise "Not a type from {scalene,right,isoceles, or equilateral}"
-        
+
+    def find_cross(self,A,AD_dir,B,BC_dir):
+        ### input is point A and direction vector AD, and point B and direction vector BC. 
+        ### output is the point where AD and BC intersect.
+        AD_dir = AD_dir/np.linalg.norm(AD_dir) ### assert normal
+        BC_dir = BC_dir/np.linalg.norm(BC_dir)
+        factor = (A[1]-A[0]+B[0]-B[1])/(AD_dir[0]*BC_dir[1]-AD_dir[1]*BC_dir[0])
+        return A+AD_dir*factor
+
     def add_median(self,edge ="A",base="BC"):
         ### add a median from vertex edge to line base
         B,C = self._pt(base[0]),self._pt(base[1]) 
         D = (B+C)/2
-        new_vertex_mark = self.letters[len(self.description["vertices"])]
-        self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
+        new_vertex_mark,new = self.new_vertex(D)
+        if new:
+            self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
         self.description["specials"].append({"type":"median","start":edge,"end":new_vertex_mark,"base":base})
         self.description["segments"].append({"mark":edge+new_vertex_mark})
         self.description["segments"].append({"mark":base[0]+new_vertex_mark,"known":True})
@@ -64,13 +80,14 @@ class Triangle():
     def add_bisector(self,angle ="ABC"):
         ### Adds a bisector for angle 
         A, B, C = self._pt(angle[0]),self._pt(angle[1]),self._pt(angle[2])
-        AB = A - B
-        CB = C - B  
+        BA = A - B
+        BC = C - B  
         AC = C - A # From A to C 
-        ratio = np.linalg.norm(AB)/np.linalg.norm(CB) ## ratio between the two limbs is the same as the two dissected parts, BA/BC = BD/CD
-        D = A + AC*(ratio/1+ratio)
-        new_vertex_mark = self.letters[len(self.description["vertices"])]
-        self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
+        BD_dir = BA/np.linalg.norm(BA)+BC/np.linalg.norm(BC) ### directional of bisector
+        D = self.find_cross(B,BD_dir,A,AC)
+        new_vertex_mark,new = self.new_vertex(D)
+        if new:
+            self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
         self.description["specials"].append({"type":"bisector","start":angle[1],"end":new_vertex_mark,"base":angle[0]+angle[2]})
         for i in range(3):
             self.description["segments"].append({"mark":angle[i]+new_vertex_mark})
@@ -83,8 +100,9 @@ class Triangle():
         BC = C - B
         cos_theta = np.dot(BA,BC)/(np.linalg.norm(BA)*np.linalg.norm(BC))
         D = B+BC/np.linalg.norm(BC)*np.linalg.norm(BA)*cos_theta ### Start from B, go in the direction of BC, cos_theta*BA
-        new_vertex_mark = self.letters[len(self.description["vertices"])]
-        self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
+        new_vertex_mark,new = self.new_vertex(D)
+        if new:
+            self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
         self.description["specials"].append({"type":"altitude","start":edge,"end":new_vertex_mark,"base":base})
         self.description["segments"].append({"mark":edge+new_vertex_mark})
         for i in range(2):
@@ -96,8 +114,9 @@ class Triangle():
         ### Adds a perpendicular median to base 
         A, B, C = self._pt(base[0]),self._pt(base[1]),self._pt(third)
         D = (A+B)/2
-        new_vertex_mark = self.letters[len(self.description["vertices"])]
-        self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
+        new_vertex_mark,new = self.new_vertex(D)
+        if new:
+            self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
         self.description["segments"].append({"mark":base[0]+new_vertex_mark,"known":True})
         BA = A - B 
         DE_dir = np.array([-BA[1],BA[0]])/np.linalg.norm(BA) ### perpendicular direction to BA
@@ -105,14 +124,13 @@ class Triangle():
         ABC = np.arccos(np.dot(BA,BC)/(np.linalg.norm(BA)*np.linalg.norm(BC)))
         AC = C - A 
         BAC = np.arccos(np.dot(-BA,AC)/(np.linalg.norm(BA)*np.linalg.norm(AC)))
-        DE_size = np.linalg.norm(BA)*0.5*min(np.tan(ABC),np.tan(BAC))
+        tgs = np.array([np.tan(ABC),np.tan(BAC)])
+        DE_size = np.linalg.norm(BA)*0.5*tgs[abs(tgs).argmin()]
         E = D-DE_size*DE_dir
 
-########### FIX FOR OBTUSE HERE!
-
-
-        new_vertex_mark_2 = self.letters[len(self.description["vertices"])]
-        self.description["vertices"].append({"mark":new_vertex_mark_2,"x":E[0],"y":E[1]})
+        new_vertex_mark_2, new = self.new_vertex(E)
+        if new:
+            self.description["vertices"].append({"mark":new_vertex_mark_2,"x":E[0],"y":E[1]})
         self.description["segments"].append({"mark":new_vertex_mark+new_vertex_mark_2})
         self.description["angles"].append({"mark":base[0]+new_vertex_mark+new_vertex_mark_2,"known":True})
         self.description["specials"].append({"type":"median_perpendicular","start":new_vertex_mark_2,"end":new_vertex_mark,"base":base})
@@ -123,12 +141,14 @@ class Triangle():
         A, B, C = self._pt(base[0]),self._pt(base[1]),self._pt(third)
         AC = C-A
         BC = C-B 
-        new_vertex_mark = self.letters[len(self.description["vertices"])]
         D = A + AC*ratio
-        self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
-        new_vertex_mark_2 = self.letters[len(self.description["vertices"])]
+        new_vertex_mark,new = self.new_vertex(D)
+        if new:
+            self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
         E = B + BC*ratio
-        self.description["vertices"].append({"mark":new_vertex_mark_2,"x":E[0],"y":E[1]})        
+        new_vertex_mark_2,new = self.new_vertex(E)
+        if new:
+            self.description["vertices"].append({"mark":new_vertex_mark_2,"x":E[0],"y":E[1]})        
         self.description["segments"].append({"mark":new_vertex_mark+new_vertex_mark_2})
         self.description["specials"].append({"type":"parallel_line","mark":new_vertex_mark+new_vertex_mark_2,"base":base})
 

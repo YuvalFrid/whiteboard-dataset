@@ -1,12 +1,10 @@
 function for jitter lines - DONE
 function for MNIST instead of printed - DONE 
+function to remove duplicants - angles and segments
 Function to write question as text!!!
 Function to mark equal angles - bisector or isoceles
 Function to mark equal lengths - median and perpendiculars 
-3V triangles 
-4V triangles 
-5V triangles
-6V triangles
+Generalized triangles + all possible constructs
 Polygons
 Circles
 Mixed
