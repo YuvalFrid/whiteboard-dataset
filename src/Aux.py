@@ -1,4 +1,3 @@
-import cv2
 import string
 import random 
 import gzip
@@ -9,6 +8,10 @@ from pdb import set_trace as st
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+import cv2
+from io import BytesIO
+from PIL import Image
+import textwrap 
 
 def save_json(description, output_dir, idx):
     with open(f"{output_dir}/labels/{idx:06d}.json", 'w') as f:
@@ -186,17 +189,6 @@ def smart_label_offset(x, y, vertices, offset_distance=0.2):
     
     return current_point + best_direction * offset_distance
 
-
-
-def draw_mark(xs,ys):
-    vector = [np.diff(xs)[0],np.diff(ys)[0]]
-    vector = np.array([vector[1],-vector[0]])
-    vector_size = np.sqrt((vector**2).sum())
-    vector *= 0.5/vector_size
-    plt.plot([xs.mean()-vector[0],xs.mean()+vector[0]],[ys.mean()-vector[1],ys.mean()+vector[1]],color = 'black')
-
-
-
 def read_idx_ubyte(file_path):
     """
     Parses a .ubyte file from the MNIST/EMNIST dataset.
@@ -324,4 +316,70 @@ def imshow_handwritten(ax,mat,offset_pos,image_size):
     y_max = offset_pos[1] + image_size[1] / 2        
     if (x_max <= x_min) or (y_min >= y_max):
         raise "Image has wrong bbox"
-    ax.imshow(mat, cmap='gray', extent=[x_min, x_max, y_min, y_max], zorder=2)   
+    ax.imshow(mat, cmap='gray', extent=[x_min, x_max, y_min, y_max], zorder=2)  
+
+
+def find_bbox(ax,padding = 10):
+    buf = BytesIO()
+    ax.figure.savefig(buf, format='png', bbox_inches='tight', dpi=64)
+    buf.seek(0)
+    img = Image.open(buf)
+    img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    img_bin = img_cv.mean(axis=2) < 255 ### turn every white into 0, rest are 1    
+    best_bbox = [[0,0],[0,0]] ### [x1,x2],[y1,y2]
+    best_area = 0
+    height,width = img_bin.shape
+    corners = [
+        (0, 0),          # top-left origin
+        (0, width-1),    # top-right origin (flip horizontally)
+        (height-1, 0),   # bottom-left origin (flip vertically)
+        (height-1, width-1)  # bottom-right origin (flip both)
+    ]
+    for corner_i, corner_j in corners:
+        sub_img = img_bin
+        if corner_i == height-1:  #verticle flip 
+            sub_img = sub_img[::-1]
+        if corner_j == width-1:   # horizontal flip
+            sub_img = sub_img[:, ::-1]
+        cumsum2d = np.cumsum(np.cumsum(sub_img,axis = 0),axis = 1)
+        y_arr,x_arr = np.where(cumsum2d == 0)
+        inds = (x_arr > padding)*(x_arr < width-1-padding)*(y_arr > padding)*(y_arr < height-1-padding)
+        x_arr = x_arr[inds]
+        y_arr = y_arr[inds]
+        areas = y_arr*x_arr
+        if best_area<areas.max():
+            best_area = areas.max()
+            ind = areas.argmax()
+            x = abs(corner_j - x_arr[ind])
+            y = abs(corner_i - y_arr[ind])
+            best_bbox = [[min(corner_j,x)+padding,max(corner_j,x)-padding],[min(corner_i,y)+padding,max(corner_i,y)-padding]]
+    return best_bbox 
+
+
+def plot_text_wrapped_bbox(text, bbox, ax=None, max_width_chars=None, **text_kwargs):
+    """
+    Plot text with automatic wrapping to fit within the bbox width.
+    """
+    if ax is None:
+        ax = plt.gca()
+    
+    x1, y1, x2, y2 = bbox
+    width = x2 - x1
+    height = y2 - y1
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+    
+    # Calculate approximate characters that can fit horizontally
+    if max_width_chars is None:
+        # Estimate characters per width (this is approximate)
+        avg_char_width = width / 50  # Adjust this heuristic based on your font
+        max_width_chars = int(width / avg_char_width)
+    
+    # Wrap the text
+    wrapped_text = textwrap.fill(text, width=max_width_chars)
+    
+    ax.text(center_x, center_y, wrapped_text, 
+            ha='center', va='center',
+            **text_kwargs)
+    
+    return wrapped_text

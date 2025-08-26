@@ -14,9 +14,9 @@ class Triangle():
             self.description[feature] = []
 
         self.letters = string.ascii_uppercase
-        if np.random.rand() > 0.8: #### add 20% of the cases with total random letters
+        if np.random.rand() > 1: #### add 20% of the cases with total random letters
             self.letters = [string.ascii_uppercase[i] for i in np.random.permutation(range(len(self.letters)))]
-
+            self.letters = ''.join(self.letters)
         self.description["vertices"].append({"mark":self.letters[0],"x":0,"y":0}) ### first point always at 0,0
         self.description["vertices"].append({"mark":self.letters[1],"x":a,"y":0}) ### second point always at a,0
 
@@ -62,8 +62,11 @@ class Triangle():
         ### output is the point where AD and BC intersect.
         AD_dir = AD_dir/np.linalg.norm(AD_dir) ### assert normal
         BC_dir = BC_dir/np.linalg.norm(BC_dir)
-        factor = (A[1]-A[0]+B[0]-B[1])/(AD_dir[0]*BC_dir[1]-AD_dir[1]*BC_dir[0])
-        return A+AD_dir*factor
+        denom = (AD_dir[0]*BC_dir[1]-AD_dir[1]*BC_dir[0])
+        if denom == 0:
+            return np.inf
+        factor = (AD_dir[0]*(A[1]-B[1])+AD_dir[1]*(B[0]-A[0]))/denom
+        return B+BC_dir*factor
 
     def add_median(self,edge ="A",base="BC"):
         ### add a median from vertex edge to line base
@@ -83,7 +86,7 @@ class Triangle():
         BA = A - B
         BC = C - B  
         AC = C - A # From A to C 
-        BD_dir = BA/np.linalg.norm(BA)+BC/np.linalg.norm(BC) ### directional of bisector
+        BD_dir = 0.5*(BA/np.linalg.norm(BA)+BC/np.linalg.norm(BC)) ### directional of bisector
         D = self.find_cross(B,BD_dir,A,AC)
         new_vertex_mark,new = self.new_vertex(D)
         if new:
@@ -121,13 +124,13 @@ class Triangle():
         BA = A - B 
         DE_dir = np.array([-BA[1],BA[0]])/np.linalg.norm(BA) ### perpendicular direction to BA
         BC = C - B
-        ABC = np.arccos(np.dot(BA,BC)/(np.linalg.norm(BA)*np.linalg.norm(BC)))
-        AC = C - A 
-        BAC = np.arccos(np.dot(-BA,AC)/(np.linalg.norm(BA)*np.linalg.norm(AC)))
-        tgs = np.array([np.tan(ABC),np.tan(BAC)])
-        DE_size = np.linalg.norm(BA)*0.5*tgs[abs(tgs).argmin()]
-        E = D-DE_size*DE_dir
-
+        AC = C - A
+        E1 = self.find_cross(D,DE_dir,B,BC)
+        E2 = self.find_cross(D,DE_dir,A,AC)
+        if np.linalg.norm(D-E1) > np.linalg.norm(D-E2):
+            E = E2
+        else:
+            E = E1
         new_vertex_mark_2, new = self.new_vertex(E)
         if new:
             self.description["vertices"].append({"mark":new_vertex_mark_2,"x":E[0],"y":E[1]})
