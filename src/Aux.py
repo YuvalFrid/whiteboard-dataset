@@ -12,6 +12,7 @@ import cv2
 from io import BytesIO
 from PIL import Image
 import textwrap 
+from scipy.ndimage import rotate,zoom
 
 def save_json(description, output_dir, idx):
     with open(f"{output_dir}/labels/{idx:06d}.json", 'w') as f:
@@ -265,47 +266,97 @@ class EMNIST_Handler():
         self.emnist_labels = emnist_labels
         self.emnist_chars = emnist_chars
         
-    def float_mat(self,num):
-        images = []
-        for v in num:
-            if v == ".":
-                mat = np.ones([28,7])
-                mat[23:26,2:5] = 0 +np.random.rand(3,3)*0.2
-                mat = create_handwritten_dot()
-                images.append(1-mat)#[:,8:-8])
-            elif v == '°':
-                # Use digit '0' from EMNIST and downscale for degree symbol
-                ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find('0'))[0])
-                mat = 1 - (self.emnist_images[ind].T / 255)
-            
-            # Downsample the '0' to make it smaller (degree symbol size)
-                downscale_factor = 0.5  # Make it half the size
-                new_size = int(28 * downscale_factor)
-                
-            # Resize using interpolation
-                mat_small = cv2.resize(mat, (new_size, new_size), interpolation=cv2.INTER_AREA)
-            
-            # Create a 28x28 canvas and place the small '0' in the top-right corner
-                canvas = np.ones((28, 28))
-                y_start = 2  # Position at the top
-                x_start = 28 - new_size - 2  # Position at the right
-            
-                canvas[y_start:y_start+new_size, x_start:x_start+new_size] = mat_small
-            
-                images.append(canvas)            
-            else:
-                ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find(v))[0])
-                mat = 1-(self.emnist_images[ind].T/255)
-                image_width = 0.5
-                image_height = 0.5
-                images.append(mat[:,3:-3])
-    
-        mat = np.concatenate(images,axis = 1)
-        return mat
     def char_mat(self,ch):
         ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find(ch))[0])
         mat = 1-(self.emnist_images[ind].T/255)            
         return mat
+    def horizontal_line(self):
+        mat = 1-self.char_mat("1")
+        line = np.zeros([28,28])
+        line[:,12:16] = 1 
+        alphas = np.arange(-90,90,1)
+        y = alphas*0
+        def convolve(image,image2,alpha):
+            return ((1-image)*rotate(image2, angle=alpha, reshape=False, mode='constant', cval=0)).sum()
+        for i,alpha in enumerate(alphas):
+            y[i] = convolve(mat,line,alpha)    # Rotate the original image to align it vertically
+        aligned_image = rotate(mat, angle=-alphas[y.argmin()], reshape=False, mode='constant', cval=0)
+        return 1-aligned_image.T
+    def equal_sign(self):
+        mat = self.horizontal_line()
+        return np.concatenate([mat[4:-10],mat[10:-4]],axis = 0)
+    def angle_sign(self):
+        line = 1-self.horizontal_line().T
+        limb = rotate(line,angle = 45,reshape=False,mode='constant',cval = 0)
+        edges = self.find_edges(limb)
+        limb = limb[edges[0]+2:edges[1]+2,edges[2]-2:edges[3]-2]
+        limb = zoom(limb,(28/limb.shape[0],14/limb.shape[1]))
+        limb = np.concatenate([np.zeros([5,14]),limb[5:]],axis = 0)
+        angle = np.concatenate([limb,limb[:,::-1]],axis = 1)[::-1].T+line
+        angle[angle>1] = 1
+        return 1-angle
+    def find_edges(self,mat):
+        width_pixels = np.where(mat.sum(axis = 0) > 0.1)[0]
+        left = width_pixels.min()
+        right = width_pixels.max()
+        height_pixels = np.where(mat.sum(axis = 1) > 0.1)[0]
+        up = height_pixels.min()
+        down = height_pixels.max()
+        return up,down,left,right
+    def token_mat(self,token):
+        #### input is some token - word, sentence, terms ("AB = 5"), returns same token handwritten.
+        mats = []
+        for char in token:
+            if char == ' ':
+                mats.append(np.ones([28,14]))
+            elif char == '=':
+                mats.append(self.equal_sign())
+            elif char ==f'{chr(8738)}':
+                mats.append(self.angle_sign())
+            elif char == ',':
+                one = self.char_mat('1')
+                mat = np.ones([28,10])
+                mat[-7:] = one[::4,8::2]
+                mats.append(mat)
+            elif char == '.':
+                mat = np.ones([28,7])
+                mat[23:26,2:5] = 0 +np.random.rand(3,3)*0.2
+                mat = create_handwritten_dot()
+                mats.append(1-mat)#[:,8:-8])
+
+            elif char == '°':
+                mat = self.char_mat('0')
+                downscale_factor = 0.5  # Make it half the size
+                new_size = int(28 * downscale_factor)
+                mat_small = cv2.resize(mat, (new_size, new_size), interpolation=cv2.INTER_AREA)
+                canvas = np.ones((28, 14))
+                y_start = 2  # Position at the top
+                x_start = 0#28 - new_size - 2  # Position at the right
+                canvas[y_start:y_start+new_size] = mat_small
+                mats.append(canvas)
+            else:
+                mats.append(self.char_mat(char)[:,2:-2])
+        return np.concatenate(mats,axis=1)
+    def text_mat(self,tokens,bbox_width):
+        x,y,height = 0,0,28
+        max_width = 0 
+        token_mats = []
+        for token in tokens:
+            mat = self.token_mat(token)
+            token_mats.append(mat)
+            max_width = max(max_width,mat.shape[1])
+        ratio = max_width//(bbox_width)+1
+        bbox_width *= ratio
+        bbox=np.ones([height,bbox_width])
+        for mat in token_mats:
+            width = mat.shape[1]
+            if x+width >= bbox.shape[1]:
+                bbox = np.concatenate([bbox,np.ones([height*3//2,bbox_width])],axis = 0)
+                x = 0
+                y+= height*3//2
+            bbox[y:y+height,x:x+width] = mat
+            x+= mat.shape[1]+20
+        return zoom(bbox,(1/ratio,1/ratio))
 
 
 
@@ -343,11 +394,16 @@ def find_bbox(ax,padding = 10):
             sub_img = sub_img[:, ::-1]
         cumsum2d = np.cumsum(np.cumsum(sub_img,axis = 0),axis = 1)
         y_arr,x_arr = np.where(cumsum2d == 0)
-        inds = (x_arr > padding)*(x_arr < width-1-padding)*(y_arr > padding)*(y_arr < height-1-padding)
+        inds = (x_arr > padding)*(x_arr < width-1-padding)*(y_arr > padding)*(y_arr < height-1-padding)*(x_arr <2*y_arr)*(y_arr<2*x_arr)
+        
         x_arr = x_arr[inds]
         y_arr = y_arr[inds]
-        areas = y_arr*x_arr
-        if best_area<areas.max():
+        areas = y_arr*x_arr+x_arr
+        try:
+            max_area = areas.max()
+        except:
+            continue
+        if best_area<max_area:
             best_area = areas.max()
             ind = areas.argmax()
             x = abs(corner_j - x_arr[ind])
@@ -383,3 +439,13 @@ def plot_text_wrapped_bbox(text, bbox, ax=None, max_width_chars=None, **text_kwa
             **text_kwargs)
     
     return wrapped_text
+
+
+
+
+
+
+
+
+
+

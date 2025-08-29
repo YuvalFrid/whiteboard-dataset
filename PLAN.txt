@@ -1,10 +1,23 @@
+Phase 1 - Triangles only:
+
 function for jitter lines - DONE
 function for MNIST instead of printed - DONE 
-function to remove duplicants - angles and segments
-Function to write question as text!!!
-Function to mark equal angles - bisector or isoceles
-Function to mark equal lengths - median and perpendiculars 
-Generalized triangles + all possible constructs
+Function to write question on image (print and handwritten) - DONE
+Function to mark equal angles - bisector or isoceles - DONE
+Function to mark equal lengths - median and perpendiculars - DONE
+Generalized triangles + all possible constructs - DONE
+
+Function to remove duplicants
+Add parallel markings
+Add parallel and perpendicular ascii symbols to handwritten
+generator for questions - given information and what is asked
+
+
+
+
+
+Phase 2 (after initial training):
+
 Polygons
 Circles
 Mixed

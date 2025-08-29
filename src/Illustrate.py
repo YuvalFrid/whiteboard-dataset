@@ -3,7 +3,8 @@ from src.Aux import *
 import cv2
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
-
+import textwrap
+from matplotlib.font_manager import FontProperties
 
 def plot_vertices(description,ax,EMNIST,handwritten = False):
     labels = []
@@ -234,4 +235,102 @@ def plot_specials(description,ax,EMNIST,handwritten = False):
 
 
 
+
+
+
+def tokenize_with_equations(text):
+    """
+    Tokenize text while preserving equations around '=' signs.
+    """
+    tokens = text.split(" ")
+    r_tokens = []
+    i = 0
+
+    while i < len(tokens):
+        # Check if next token is '=' (and we're not at the end)
+        if i < len(tokens) - 2 and tokens[i + 1] == '=':
+            # Combine: current + '=' + next
+            equation = tokens[i] + " = " + tokens[i + 2]
+            r_tokens.append(equation)
+            i += 3  # Skip the next two tokens since we've consumed them
+        else:
+            r_tokens.append(tokens[i])
+            i += 1
+
+    return r_tokens
+def render_wrapped_text(tokens, width, height, fontsize=12, fontname="DejaVu Sans"):
+    """
+    Renders a list of tokens (words) into a bounding box of given width and height.
+    Returns the rendered text as a numpy array.
+
+    Args:
+        tokens: List of words (strings) to render.
+        width: Width of the bounding box.
+        height: Height of the bounding box.
+        fontsize: Font size for the text.
+        fontname: Font family for the text.
+
+    Returns:
+        numpy.ndarray: Rendered image as a numpy array (RGB format).
+    """
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(width / 100, height / 100), dpi=100)
+    ax.set_xlim(0, width)
+    ax.set_ylim(0, height)
+    ax.axis('off')
+
+    # Initialize position
+    x, y = 0, height  # Start from top-left
+    font_prop = FontProperties(family=fontname, size=fontsize)
+
+    # Place each token
+    for token in tokens:
+        # Draw temporarily to measure
+        t = ax.text(x, y, token, fontproperties=font_prop, ha='left', va='top', alpha=0)
+        renderer = ax.figure.canvas.get_renderer()
+        bb = t.get_window_extent(renderer=renderer)
+        bb_data = ax.transData.inverted().transform(bb.corners())
+        tok_w = bb_data[:, 0].max() - bb_data[:, 0].min()
+        tok_h = bb_data[:, 1].max() - bb_data[:, 1].min()
+        t.remove()
+
+        # Check if the token fits in the current line
+        if x + tok_w > width:
+            # Move to the next line
+            x = 0
+            y -= 1.2 * tok_h  # Move down for the next line
+
+        # Check if the token fits vertically
+        if y - tok_h < 0:
+            # No more space, stop rendering
+            break
+
+        # Place the token
+        ax.text(x, y, token, fontproperties=font_prop, ha='left', va='top')
+
+        # Update x position for the next token
+        x += tok_w + fontsize * 0.3  # Add spacing
+
+    # Convert the figure to a numpy array
+    fig.canvas.draw()
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    plt.close(fig)
+
+    return img
+
+
+def overlay_text_on_image(base_img, text_img, bbox):
+    """
+    Overlay text_img on base_img at the bbox location.
+    bbox = (x, y, width, height)
+    """
+    x, y, w, h = bbox
+
+    text_img_resized = Image.fromarray(text_img).resize((w, h))
+    text_img_resized = np.array(text_img_resized)
+
+    base_copy = base_img.copy()
+    base_copy[y:y+h, x:x+w] = text_img_resized
+    return base_copy
 
