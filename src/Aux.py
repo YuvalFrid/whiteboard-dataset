@@ -267,7 +267,10 @@ class EMNIST_Handler():
         self.emnist_chars = emnist_chars
         
     def char_mat(self,ch):
-        ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find(ch))[0])
+        try:
+            ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find(ch))[0])
+        except:
+            st()
         mat = 1-(self.emnist_images[ind].T/255)            
         return mat
     def horizontal_line(self):
@@ -282,8 +285,9 @@ class EMNIST_Handler():
             y[i] = convolve(mat,line,alpha)    # Rotate the original image to align it vertically
         aligned_image = rotate(mat, angle=-alphas[y.argmin()], reshape=False, mode='constant', cval=0)
         return 1-aligned_image.T
-    def equal_sign(self):
-        mat = self.horizontal_line()
+    def equal_sign(self,mat = None):
+        if mat is None: ### for congruent we want to insert a specific line
+            mat = self.horizontal_line()
         return np.concatenate([mat[4:-10],mat[10:-4]],axis = 0)
     def angle_sign(self):
         line = 1-self.horizontal_line().T
@@ -295,6 +299,38 @@ class EMNIST_Handler():
         angle = np.concatenate([limb,limb[:,::-1]],axis = 1)[::-1].T+line
         angle[angle>1] = 1
         return 1-angle
+    def parallel_sign(self):
+        line = self.horizontal_line().T
+        return np.concatenate([line[:,5:-9],line[:,9:-5]],axis = 1)
+    def tilda_sign(self,base = None):
+        if base is None: #### For congruent we want to insert a specific line
+            base = self.horizontal_line()
+        up,down,left,right = self.find_edges(1-base)
+        x = np.arange(28)
+        y = 5*np.sin(2*np.pi*(x-left)/(right-left))
+        for i in x:
+            shift = int(y[i])
+            base[:,i] = np.concatenate([base[shift:,i],base[:shift,i]],axis =0)
+        return 1-rotate(1-base,angle = 10,reshape = False,mode ='constant',cval = 0)
+
+
+    def congruent_sign(self):
+        base = self.horizontal_line()
+        tilda = self.tilda_sign(base.copy())
+        up_t,down_t,_,_= self.find_edges(1-tilda)
+        equal = self.equal_sign(base.copy())
+        up_e,down_e,_,_= self.find_edges(1-equal)
+        width_t = down_t-up_t+1
+        width_e = down_e-up_e+1
+        congruent = np.concatenate([tilda[up_t:down_t+1],equal[up_e-1:down_e+28-width_t-width_e]],axis = 0)
+        return congruent
+    def perpendicular_sign(self):
+        line = self.horizontal_line()
+        v_line = line.T
+        edges = self.find_edges(1-v_line)
+        width = edges[3]-edges[2]
+        v_line[edges[1]-width:edges[1]] *= line[edges[2]:edges[3]]
+        return v_line
     def find_edges(self,mat):
         width_pixels = np.where(mat.sum(axis = 0) > 0.1)[0]
         left = width_pixels.min()
@@ -311,8 +347,16 @@ class EMNIST_Handler():
                 mats.append(np.ones([28,14]))
             elif char == '=':
                 mats.append(self.equal_sign())
-            elif char ==f'{chr(8738)}':
+            elif char =='∠' or char =='∢':
                 mats.append(self.angle_sign())
+            elif char =='∥':
+                mats.append(self.parallel_sign()) ### ADD
+            elif char =='≅':
+                mats.append(self.congruent_sign()) ### ADDD
+            elif char == '~':
+                mats.append(self.tilda_sign()) ### ADD
+            elif char =='⊥':
+                mats.append(self.perpendicular_sign()) ### ADD
             elif char == ',':
                 one = self.char_mat('1')
                 mat = np.ones([28,10])

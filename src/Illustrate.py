@@ -180,6 +180,27 @@ def mark_angle(description,mark = "ABC",num = 1):
         locs.append([mark-0.5*bisector,mark+0.5*bisector])
     return locs
 
+def mark_parallel(description,mark1 = "AB",mark2 = "CD"):
+    inds = [description["index_lookup"][mark1[i]] for i in range(2)]
+    A,B = [np.array([description["vertices"][ind]["x"],description["vertices"][ind]["y"]]) for ind in inds]
+    AB = B-A
+    inds = [description["index_lookup"][mark2[i]] for i in range(2)]
+    C,D = [np.array([description["vertices"][ind]["x"],description["vertices"][ind]["y"]]) for ind in inds]
+    CD = D-C
+    if np.dot(AB,CD) < 0: ### flipped directions
+        CD = -CD
+    AB_dir = AB/np.linalg.norm(AB)
+    AB_per = np.array([-AB[1],AB[0]])
+    AB_per = AB_per/np.linalg.norm(AB_per)
+    center = A+AB*(0.1+np.random.rand()*0.2)
+    arrow_limb = AB_dir*(1+np.random.rand()) + AB_per
+    arrow_size = 2*np.linalg.norm(arrow_limb)
+    locs =[]
+    for vertex,vector in zip([A,C],[AB,CD]):
+        center = vertex+vector*(0.1+np.random.rand()*0.2)
+        locs.append([center,center+arrow_limb/arrow_size])
+        locs.append([center,center+(arrow_limb-2*AB_per)/arrow_size])
+    return locs
 
 
 
@@ -230,6 +251,15 @@ def plot_specials(description,ax,EMNIST,handwritten = False):
                         ax.plot(x_sim, y_sim, color='black', linewidth=2, zorder=1)
                     else:
                         ax.plot([loc[0][0],loc[1][0]], [loc[0][1],loc[1][1]], color='black', linewidth=2, zorder=1)
+        if s['type'] =='parallel_line':
+            mark,base = s['mark'],s['base']            
+            locs = mark_parallel(description,mark,base)
+            for loc in locs:
+                if handwritten:
+                    x_sim,y_sim = simulate_handwritten_line(loc[0],loc[1],jitter_strength = 0.05*np.random.rand())
+                    ax.plot(x_sim, y_sim, color='black', linewidth=2, zorder=1)
+                else:
+                    ax.plot([loc[0][0],loc[1][0]], [loc[0][1],loc[1][1]], color='black', linewidth=2, zorder=1)
 
     return description
 
@@ -245,10 +275,11 @@ def tokenize_with_equations(text):
     tokens = text.split(" ")
     r_tokens = []
     i = 0
+    special_symbols = {"=", "∥", "⊥", "~", "≅"}
 
     while i < len(tokens):
         # Check if next token is '=' (and we're not at the end)
-        if i < len(tokens) - 2 and tokens[i + 1] == '=':
+        if i < len(tokens) - 2 and tokens[i + 1] in special_symbols:
             # Combine: current + '=' + next
             equation = tokens[i] + " = " + tokens[i + 2]
             r_tokens.append(equation)

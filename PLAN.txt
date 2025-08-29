@@ -6,12 +6,11 @@ Function to write question on image (print and handwritten) - DONE
 Function to mark equal angles - bisector or isoceles - DONE
 Function to mark equal lengths - median and perpendiculars - DONE
 Generalized triangles + all possible constructs - DONE
+Add Parallel Markings - DONE 
+Add parallel,tilda,congruent, and perpendicular ascii symbols to handwritten - DONE
 
-Function to remove duplicants
-Add parallel markings
-Add parallel and perpendicular ascii symbols to handwritten
+function to remove duplicants
 generator for questions - given information and what is asked
-
 
 
 
