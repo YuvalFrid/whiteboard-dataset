@@ -13,7 +13,7 @@ from io import BytesIO
 from PIL import Image
 import textwrap 
 from scipy.ndimage import rotate,zoom
-
+from src.l2q_inference import * 
 def save_json(description, output_dir, idx):
     with open(f"{output_dir}/labels/{idx:06d}.json", 'w') as f:
         json.dump(description, f, indent=2)  # indent=2 for human readability
@@ -265,7 +265,7 @@ class EMNIST_Handler():
         self.emnist_images = emnist_images
         self.emnist_labels = emnist_labels
         self.emnist_chars = emnist_chars
-        
+        self.l2q = L2QInference(weights_path="src/l2q_generator_weights.pth")  
     def char_mat(self,ch):
         try:
             ind = np.random.choice(np.where(self.emnist_labels == self.emnist_chars.find(ch))[0])
@@ -293,8 +293,11 @@ class EMNIST_Handler():
         line = 1-self.horizontal_line().T
         limb = rotate(line,angle = 45,reshape=False,mode='constant',cval = 0)
         edges = self.find_edges(limb)
-        limb = limb[edges[0]+2:edges[1]+2,edges[2]-2:edges[3]-2]
-        limb = zoom(limb,(28/limb.shape[0],14/limb.shape[1]))
+        limb = limb[edges[0]+2:edges[1]+2,max(edges[2]-2,0):max(edges[3]-2,0)]
+        try:
+            limb = zoom(limb,(28/limb.shape[0],14/limb.shape[1]))
+        except:
+            st()
         limb = np.concatenate([np.zeros([5,14]),limb[5:]],axis = 0)
         angle = np.concatenate([limb,limb[:,::-1]],axis = 1)[::-1].T+line
         angle[angle>1] = 1
@@ -312,8 +315,6 @@ class EMNIST_Handler():
             shift = int(y[i])
             base[:,i] = np.concatenate([base[shift:,i],base[:shift,i]],axis =0)
         return 1-rotate(1-base,angle = 10,reshape = False,mode ='constant',cval = 0)
-
-
     def congruent_sign(self):
         base = self.horizontal_line()
         tilda = self.tilda_sign(base.copy())
@@ -345,18 +346,21 @@ class EMNIST_Handler():
         for char in token:
             if char == ' ':
                 mats.append(np.ones([28,14]))
+            elif char == '?':
+                l = self.horizontal_line().T
+                mats.append(self.l2q.predict(l))
             elif char == '=':
                 mats.append(self.equal_sign())
             elif char =='∠' or char =='∢':
                 mats.append(self.angle_sign())
             elif char =='∥':
-                mats.append(self.parallel_sign()) ### ADD
+                mats.append(self.parallel_sign()) 
             elif char =='≅':
-                mats.append(self.congruent_sign()) ### ADDD
+                mats.append(self.congruent_sign()) 
             elif char == '~':
-                mats.append(self.tilda_sign()) ### ADD
+                mats.append(self.tilda_sign()) 
             elif char =='⊥':
-                mats.append(self.perpendicular_sign()) ### ADD
+                mats.append(self.perpendicular_sign()) 
             elif char == ',':
                 one = self.char_mat('1')
                 mat = np.ones([28,10])
@@ -386,6 +390,8 @@ class EMNIST_Handler():
         max_width = 0 
         token_mats = []
         for token in tokens:
+            if token == '':
+                continue
             mat = self.token_mat(token)
             token_mats.append(mat)
             max_width = max(max_width,mat.shape[1])
@@ -414,12 +420,15 @@ def imshow_handwritten(ax,mat,offset_pos,image_size):
     ax.imshow(mat, cmap='gray', extent=[x_min, x_max, y_min, y_max], zorder=2)  
 
 
-def find_bbox(ax,padding = 10):
-    buf = BytesIO()
-    ax.figure.savefig(buf, format='png', bbox_inches='tight', dpi=64)
-    buf.seek(0)
-    img = Image.open(buf)
-    img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+def find_bbox(ax,input_type = 'axis',padding = 10):
+    if input_type == 'axis':
+        buf = BytesIO()
+        ax.figure.savefig(buf, format='png', bbox_inches='tight', dpi=64)
+        buf.seek(0)
+        img = Image.open(buf)
+        img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    else:
+        img_cv = ax
     img_bin = img_cv.mean(axis=2) < 255 ### turn every white into 0, rest are 1    
     best_bbox = [[0,0],[0,0]] ### [x1,x2],[y1,y2]
     best_area = 0

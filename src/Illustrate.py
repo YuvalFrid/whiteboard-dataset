@@ -5,6 +5,9 @@ from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 from matplotlib.font_manager import FontProperties
+from math import atan2
+from scipy.optimize import linprog
+
 
 def plot_vertices(description,ax,EMNIST,handwritten = False):
     labels = []
@@ -21,7 +24,7 @@ def plot_vertices(description,ax,EMNIST,handwritten = False):
      #   offset_pos = vertice + (vertice-O)*0.1
         if handwritten:
             mat = EMNIST.char_mat(point["mark"])
-            imshow_handwritten(ax,mat,offset_pos,[0.5,0.5])            
+            imshow_handwritten(ax,mat,offset_pos,[0.5,0.5])        
         else:
             label = ax.text(offset_pos[0], offset_pos[1], point["mark"], fontsize=14, 
                            fontweight='bold', ha='center', va='center',
@@ -29,7 +32,6 @@ def plot_vertices(description,ax,EMNIST,handwritten = False):
             labels.append(label)
 
     return labels
-
 
 def plot_segments(description,ax,EMNIST,handwritten = False):
     segment_labels = []
@@ -47,7 +49,8 @@ def plot_segments(description,ax,EMNIST,handwritten = False):
             ax.plot(xs, ys, color='black', linewidth=2, zorder=1)
         if s["known"]:
             length = np.linalg.norm(B-A)
-            real_value_disc = bool(random.getrandbits(1))
+            length = length#*(0.7+0.6*np.random.rand())### add +-30% for randomization
+            real_value_disc = True#bool(random.getrandbits(1))
             formatted_length, is_sqrt = format_length_with_sqrt(length)
         
             if real_value_disc:
@@ -57,7 +60,7 @@ def plot_segments(description,ax,EMNIST,handwritten = False):
                 formatted_length = length_val
             if s["known"]:
                 s["length"] = length_val
-                s["unit"] = ["cm"]
+                s["unit"] = "cm"
                 
             continue
             # Calculate perpendicular offset for segment labels
@@ -103,7 +106,10 @@ def plot_angles(description,ax,EMNIST,handwritten = False):
         BA_size = np.linalg.norm(BA)
         BC_size = np.linalg.norm(BC)
         degree = np.around(np.arccos(np.dot(BA,BC)/(BA_size*BC_size))*180/np.pi,2)
-        a["value"] = degree
+        if not degree == 90:
+            a["value"] = np.around(degree,2)#*(0.9+0.2*np.random.rand()),2) ### randomize with +-10 % 
+        else:
+            a["value"] = 90
         a["unit"] = "deg"
         radius = 0.2 * min(BA_size, BC_size)
         
@@ -220,7 +226,7 @@ def plot_specials(description,ax,EMNIST,handwritten = False):
                     else:
                         ax.plot([loc[0][0],loc[1][0]], [loc[0][1],loc[1][1]], color='black', linewidth=2, zorder=1)
         if s['type'] == 'altitude' or s['type'] == 'median_perpendicular':
-            angle_mark = s['start']+s['end']+s['base'][0]
+            angle_mark = min(s['start'],s['base'][0])+s['end']+max(s['start'],s['base'][0])
             exist = False
             for angle in description["angles"]:
                 if angle_mark == angle["mark"] or angle_mark[::-1] == angle["mark"]:
@@ -289,23 +295,47 @@ def tokenize_with_equations(text):
             i += 1
 
     return r_tokens
-def render_wrapped_text(tokens, width, height, fontsize=12, fontname="DejaVu Sans"):
+
+
+def render_wrapped_text(tokens, width, height, fontsize=12, fontname="DejaVu Sans", min_fontsize=6):
     """
     Renders a list of tokens (words) into a bounding box of given width and height.
-    Returns the rendered text as a numpy array.
+    Automatically reduces font size if text doesn't fit.
 
     Args:
         tokens: List of words (strings) to render.
         width: Width of the bounding box.
         height: Height of the bounding box.
-        fontsize: Font size for the text.
+        fontsize: Initial font size for the text.
         fontname: Font family for the text.
+        min_fontsize: Minimum font size to try.
 
     Returns:
         numpy.ndarray: Rendered image as a numpy array (RGB format).
     """
-    # Create a figure and axis
+    try:
+        return _render_with_fontsize(tokens, width, height, fontsize, fontname)
+    except TextDoesNotFitError:
+        if fontsize > min_fontsize:
+            # Recursively try with smaller font size
+            return render_wrapped_text(tokens, width, height, fontsize - 1, fontname, min_fontsize)
+        else:
+            # Use minimum font size and render what fits
+            return _render_with_fontsize(tokens, width, height, min_fontsize, fontname, force_render=True)
+
+
+def _render_with_fontsize(tokens, width, height, fontsize, fontname, force_render=False):
+    """
+    Internal function to render with specific font size.
+    Raises TextDoesNotFitError if text doesn't fit and force_render is False.
+    """
+    # Create a figure and axis with tight layout
     fig, ax = plt.subplots(figsize=(width / 100, height / 100), dpi=100)
+
+    # Remove all margins
+    plt.subplots_adjust(left=0, right=1, bottom=0, top=1)
+    ax.set_position([0, 0, 1, 1])
+
     ax.set_xlim(0, width)
     ax.set_ylim(0, height)
     ax.axis('off')
@@ -333,8 +363,12 @@ def render_wrapped_text(tokens, width, height, fontsize=12, fontname="DejaVu San
 
         # Check if the token fits vertically
         if y - tok_h < 0:
-            # No more space, stop rendering
-            break
+            if force_render:
+                # In force mode, just skip this token
+                continue
+            else:
+                plt.close(fig)
+                raise TextDoesNotFitError(f"Text doesn't fit with fontsize {fontsize}")
 
         # Place the token
         ax.text(x, y, token, fontproperties=font_prop, ha='left', va='top')
@@ -351,6 +385,14 @@ def render_wrapped_text(tokens, width, height, fontsize=12, fontname="DejaVu San
     return img
 
 
+class TextDoesNotFitError(Exception):
+    """Exception raised when text doesn't fit in the bounding box."""
+    pass
+
+
+
+
+
 def overlay_text_on_image(base_img, text_img, bbox):
     """
     Overlay text_img on base_img at the bbox location.
@@ -364,4 +406,85 @@ def overlay_text_on_image(base_img, text_img, bbox):
     base_copy = base_img.copy()
     base_copy[y:y+h, x:x+w] = text_img_resized
     return base_copy
+
+
+
+
+
+
+
+
+def order_ccw(pts):
+    """Return pts ordered CCW around centroid."""
+    pts = np.asarray(pts, dtype=float)
+    cx, cy = pts.mean(axis=0)
+    angles = [atan2(y - cy, x - cx) for x, y in pts]
+    order = np.argsort(angles)
+    return pts[order]
+
+def halfspaces_of_convex_polygon(vertices_ccw):
+    """
+    Given CCW vertices of a convex polygon, return array of unit outward normals N (m,2)
+    and offsets b (m,) s.t. N[i]·x <= b[i] for points inside the polygon.
+    """
+    V = np.asarray(vertices_ccw, dtype=float)
+    m = V.shape[0]
+    normals = []
+    offsets = []
+    for i in range(m):
+        p = V[i]
+        q = V[(i+1) % m]
+        edge = q - p            # edge vector from p->q (polygon CCW)
+        # outward normal for CCW polygon: rotate edge clockwise (dy, -dx)
+        nvec = np.array([edge[1], -edge[0]], dtype=float)
+        norm = np.linalg.norm(nvec)
+        if norm == 0:
+            continue
+        u = nvec / norm         # unit outward normal
+        b = np.dot(u, p)        # n·x = b for points on the edge
+        normals.append(u)
+        offsets.append(b)
+    return np.asarray(normals), np.asarray(offsets)
+
+def largest_axis_aligned_rect_in_kite(vertices, R, tol=1e-9):
+    """
+    vertices: list of 4 (x,y) for kite ABCD in any order
+    R: height/width ratio (H/W)
+    Returns dict: W, H, center (cx,cy), corners (4x2), success flag.
+    """
+    # order CCW to be safe
+    Vccw = order_ccw(vertices)
+    N, b = halfspaces_of_convex_polygon(Vccw)
+    if N.size == 0:
+        return {"success": False, "reason": "bad polygon"}
+
+    # alpha_i = 0.5*(|n_x| + R*|n_y|)
+    alpha = 0.5 * (np.abs(N[:,0]) + R * np.abs(N[:,1]))
+
+    # variables: [cx, cy, W] -> maximize W  <=> minimize -W
+    c_obj = np.array([0.0, 0.0, -1.0])
+
+    # inequalities: N @ [cx,cy] + alpha * W <= b
+    A_ub = np.hstack([N, alpha.reshape(-1,1)])
+    b_ub = b.copy()
+
+    # bounds: cx, cy free; W >= 0
+    bounds = [(None, None), (None, None), (0, None)]
+
+    res = linprog(c=c_obj, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method="highs")
+
+    if not res.success or res.x[2] <= tol:
+        return {"success": False, "reason": "no feasible rectangle found", "lp_res": res}
+
+    cx, cy, W = res.x
+    H = R * W
+    dx, dy = W/2.0, H/2.0
+    corners = np.array([
+        [cx - dx, cy - dy],
+        [cx + dx, cy - dy],
+        [cx + dx, cy + dy],
+        [cx - dx, cy + dy],
+    ])
+
+    return {"success": True, "W": W, "H": H, "center": (cx, cy), "corners": corners, "lp_res": res}
 

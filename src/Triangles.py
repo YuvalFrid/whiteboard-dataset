@@ -1,6 +1,9 @@
+from typing import Dict, List, Any
 import numpy as np 
 import string
 from pdb import set_trace as st 
+from typing import List, Union
+
 
 class Triangle():
     def __init__(self,a,b,rotation = 0,mirror = False):
@@ -14,7 +17,7 @@ class Triangle():
             self.description[feature] = []
 
         self.letters = string.ascii_uppercase
-        if np.random.rand() > 1: #### add 20% of the cases with total random letters
+        if np.random.rand() > 0.8: #### add 20% of the cases with total random letters
             self.letters = [string.ascii_uppercase[i] for i in np.random.permutation(range(len(self.letters)))]
             self.letters = ''.join(self.letters)
         self.description["vertices"].append({"mark":self.letters[0],"x":0,"y":0}) ### first point always at 0,0
@@ -77,7 +80,7 @@ class Triangle():
             self.description["vertices"].append({"mark":new_vertex_mark,"x":D[0],"y":D[1]})
         self.description["specials"].append({"type":"median","start":edge,"end":new_vertex_mark,"base":base})
         self.description["segments"].append({"mark":edge+new_vertex_mark})
-        self.description["segments"].append({"mark":base[0]+new_vertex_mark,"known":True})
+        self.description["segments"].append({"mark":base[0]+new_vertex_mark})
         self.description["segments"].append({"mark":base[1]+new_vertex_mark})
         self.description["angles"].append({"mark":edge+new_vertex_mark+base[0]})
     def add_bisector(self,angle ="ABC"):
@@ -94,7 +97,7 @@ class Triangle():
         self.description["specials"].append({"type":"bisector","start":angle[1],"end":new_vertex_mark,"base":angle[0]+angle[2]})
         for i in range(3):
             self.description["segments"].append({"mark":angle[i]+new_vertex_mark})
-        self.description["angles"].append({"mark":angle[:2]+new_vertex_mark,"known":True})
+        self.description["angles"].append({"mark":angle[:2]+new_vertex_mark})
 
     def add_altitude(self,edge = "A",base="BC"):
         ### Adds an altitude from edge to base
@@ -186,4 +189,165 @@ class Triangle():
             vertix["x"],vertix["y"] = x_rot,y_rot
 
     
+    def set_3V_question(self,num_questions = 1):
+        #### all questions with sine or cosine theorems. only 3 values are needed in total - 1-3 segments, 0-2 angles. 
+        mask = np.zeros(6,dtype = bool)
+        mask[:3] = True ### only three values in total are needed
+        mask = np.random.permutation(mask) ### random permutation
+        if mask[3:].sum() == 3: ### in case all angles are given and no limbs.
+            mask[np.random.choice(range(3))] = True
+            mask[np.random.choice(range(3,6))] = False
+        for i in range(3):
+            self.description["segments"][i]["known"] = mask[i]
+            self.description["angles"][i]["known"] = mask[i+3]
+        question_inds = np.where(mask == False)[0]
+        for question in range(num_questions):
+            i = question_inds[question]
+            if i < 3:
+                self.description["questions"].append("Find Segment " +self.description["segments"][i]["mark"]+". ")
+            else:
+                self.description["questions"].append("Find Angle ∢"+self.description["angles"][i-3]["mark"]+". ")
+
+    def set_4V_median_question(self,num_questions = 1):
+        vertex_order = np.random.permutation(range(3)) ## randomly set the edge and base
+        edge = self.description["vertices"][vertex_order[0]]["mark"]
+        base = self.description["vertices"][vertex_order[1]]["mark"]+self.description["vertices"][vertex_order[2]]["mark"]
+        base = "".join(sorted(base))
+        self.add_median(edge = edge,base =base)
+        end = self.description["vertices"][3]["mark"]
+        self.description = canonize_geometry_preserve(self.description)
+
+        segment_order = [i["mark"] for i in self.description["segments"]]
+        angle_order = [i["mark"] for i in self.description["angles"]]
+        segment_order = np.random.permutation(segment_order)
+        angle_order = np.random.permutation(angle_order)
+        angle_num = np.random.randint(3) ### 0 1 2 angles options
+        unknown = np.array(list(angle_order[angle_num:]) + list(segment_order[3-angle_num:]))
+        known = np.array(list(angle_order[:angle_num]) + list(segment_order[:3-angle_num]))
+
+        for part in self.description["segments"]+self.description["angles"]:
+            if part["mark"] in known:
+                part["known"] = True
+            else:
+                part["known"] = False
+        for question in range(num_questions):
+            mark = unknown[question]
+            if len(mark) == 2:
+                self.description["questions"].append(f"Find segment {mark}.")
+            else:
+                self.description["questions"].append(f"Find angle ∢{mark}.")
+
+    def set_4V_altitude_question(self,num_questions = 1):
+        vertex_order = np.random.permutation(range(3)) ## randomly set the edge and base
+        A,B,C = [np.array([self.description["vertices"][v]["x"],self.description["vertices"][v]["y"]]) for v in vertex_order]
+        if np.dot(A-B,B-C) == 0:  ## hypotenuse AC 
+            edge = self.description["vertices"][vertex_order[1]]["mark"]
+            base = self.description["vertices"][vertex_order[0]]["mark"]+self.description["vertices"][vertex_order[2]]["mark"]
+        elif np.dot(A-C,C-B) == 0: ### hypotenuse AB 
+            edge = self.description["vertices"][vertex_order[2]]["mark"]
+            base = self.description["vertices"][vertex_order[0]]["mark"]+self.description["vertices"][vertex_order[1]]["mark"]
+
+        else: ### hypotenuse BC or not right angle
+            edge = self.description["vertices"][vertex_order[0]]["mark"]
+            base = self.description["vertices"][vertex_order[1]]["mark"]+self.description["vertices"][vertex_order[2]]["mark"]
+        base = "".join(sorted(base))
+        self.add_altitude(edge = edge,base =base)
+        end = self.description["vertices"][3]["mark"]
+        self.description = canonize_geometry_preserve(self.description)
+        segment_order = [i["mark"] for i in self.description["segments"]]
+        angle_order = [i["mark"] for i in self.description["angles"]]
+        segment_order = np.random.permutation(segment_order)
+        angle_order = np.random.permutation(angle_order)
+        
+        angle_num = np.random.randint(1) ### 1 angles options
+        unknown = np.array(list(angle_order[angle_num:]) + list(segment_order[3-angle_num:]))
+        known = np.array(list(angle_order[:angle_num]) + list(segment_order[:3-angle_num]))
+
+        for part in self.description["segments"]+self.description["angles"]:
+            if part["mark"] in known:
+                part["known"] = True
+            else:
+                part["known"] = False
+        for question in range(num_questions):
+            mark = unknown[question]
+            if len(mark) == 2:
+                self.description["questions"].append(f"Find segment {mark}.")
+            else:
+                self.description["questions"].append(f"Find angle ∢{mark}.")
+
+
+
+    def set_4V_bisector_question(self,num_questions = 1):
+        vertex_order = np.random.permutation(range(3)) ## randomly set the edge and base
+        edge = self.description["vertices"][vertex_order[0]]["mark"]
+        base = self.description["vertices"][vertex_order[1]]["mark"]+self.description["vertices"][vertex_order[2]]["mark"]
+        base = "".join(sorted(base))
+        self.add_bisector(base[0]+edge+base[1])
+
+        end = self.description["vertices"][3]["mark"]
+        self.description = canonize_geometry_preserve(self.description)
+
+        segment_order = [i["mark"] for i in self.description["segments"]]
+        angle_order = [i["mark"] for i in self.description["angles"]]
+        segment_order = np.random.permutation(segment_order)
+        angle_order = np.random.permutation(angle_order)
+        angle_num = np.random.randint(3) ### 0 1 2 angles options
+        unknown = np.array(list(angle_order[angle_num:]) + list(segment_order[3-angle_num:]))
+        known = np.array(list(angle_order[:angle_num]) + list(segment_order[:3-angle_num]))
+        counter = 0
+        for part in self.description["segments"]+self.description["angles"]:
+            if part["mark"] in known:
+                part["known"] = True
+                counter += 1
+            else:
+                part["known"] = False
+
+        for question in range(num_questions):
+            mark = unknown[question]
+            if len(mark) == 2:
+                self.description["questions"].append(f"Find segment {mark}.")
+            else:
+                self.description["questions"].append(f"Find angle ∢{mark}.")
+
+
+
+
+
+
+def canonize_geometry_preserve(description):
+    marks = []
+    vertices = []
+    for v in description["vertices"]:
+        marks.append(v["mark"])
+        vertices.append(v)
+
+    inds = sorted(range(len(marks)), key = lambda k:marks[k])
+    for i in inds:
+        description["vertices"][i] = vertices[inds[i]]
+
+    marks = []
+    segments = []
+    for s in description["segments"]:
+        s["mark"] = "".join(sorted(s["mark"]))
+        marks.append(s["mark"])
+        segments.append(s)
+    inds = sorted(range(len(marks)), key = lambda k:marks[k])
+    for i in inds:
+        description["segments"][i] = segments[inds[i]]
+
+    marks = []
+    angles = []
+    for a in description["angles"]:
+        base = a["mark"][1]
+        edges = sorted([a["mark"][i] for i in [0,2]])        
+        a["mark"] = edges[0]+base+edges[1]
+        marks.append(a["mark"])
+        angles.append(a)
+
+    inds = sorted(range(len(marks)), key = lambda k:marks[k])
+    for i in inds:
+        description["angles"][i] = angles[inds[i]]
+
+    
+    return description
 
